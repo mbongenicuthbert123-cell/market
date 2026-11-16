@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Market POS | Admin Dashboard</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#f3f6fa;color:#263445}
+header{background:#172334;color:white;padding:18px 24px;display:flex;justify-content:space-between;align-items:center;gap:12px}
+h1{font-size:22px;margin:0}main{max-width:1200px;margin:28px auto;padding:0 18px}
+.panel,.stat{background:white;border-radius:12px;padding:20px;box-shadow:0 3px 14px #17233412}
+.login{max-width:390px;margin:9vh auto}.field{margin:14px 0}label{display:block;font-weight:bold;font-size:13px;margin-bottom:6px}
+input{width:100%;padding:12px;border:1px solid #ccd5df;border-radius:7px;font-size:15px}
+button{border:0;border-radius:7px;padding:10px 13px;background:#2563eb;color:white;font-weight:bold;cursor:pointer}
+button:disabled{opacity:.5;cursor:wait}.danger{background:#dc2626}.pause{background:#d97706}.muted{background:#64748b}
+#app{display:none}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:18px 0}
+.stat small{color:#64748b}.stat strong{display:block;font-size:30px;margin-top:8px}
+.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;margin-top:15px;min-width:780px}
+th,td{text-align:left;padding:12px 10px;border-bottom:1px solid #e7edf3;font-size:14px}th{background:#f8fafc}
+.pill{padding:5px 8px;border-radius:20px;font-size:12px;font-weight:bold;background:#e2e8f0}
+.approved{background:#dcfce7;color:#166534}.pending{background:#fef3c7;color:#92400e}.paused{background:#fee2e2;color:#991b1b}
+.toolbar{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap} .toolbar input{max-width:300px}
+#message{margin-top:12px;color:#b91c1c;font-size:14px}.subtle{color:#64748b;font-size:13px}
+.actions{display:flex;gap:6px;flex-wrap:wrap}.actions button{font-size:12px;padding:8px}
+@media(max-width:750px){.stats{grid-template-columns:repeat(2,1fr)}header{padding:15px}.stat strong{font-size:25px}}
+</style>
+</head>
+<body>
+<header>
+<h1>MARKET POS — ADMIN CONTROL PANEL</h1>
+<button id="logout" class="muted" style="display:none" onclick="logout()">Log out</button>
+</header>
+
+<main>
+<section id="login" class="panel login">
+<h2>Administrator Login</h2>
+<p class="subtle">Sign in with your administrator credentials.</p>
+
+<form onsubmit="loginAdmin(event)">
+<div class="field">
+<label>Username</label>
+<input id="username" autocomplete="username" required placeholder="Username">
+</div>
+
+<div class="field">
+<label>Password</label>
+<input id="password" type="password" autocomplete="current-password" required placeholder="Password">
+</div>
+
+<button id="loginBtn" type="submit" style="width:100%">Sign in</button>
+<div id="message"></div>
+</form>
+</section>
+
+<section id="app">
+<div class="toolbar">
+<div>
+<h2>Business accounts</h2>
+<p class="subtle">Approve paid businesses, pause access, or remove accounts.</p>
+</div>
+<button onclick="loadAccounts()">Refresh data</button>
+</div>
+
+<div class="stats">
+<div class="stat"><small>Total registered</small><strong id="total">0</strong></div>
+<div class="stat"><small>Approved</small><strong id="approved">0</strong></div>
+<div class="stat"><small>Awaiting approval</small><strong id="pending">0</strong></div>
+<div class="stat"><small>Paused</small><strong id="paused">0</strong></div>
+</div>
+
+<div class="panel">
+<div class="toolbar">
+<h3>Registered businesses</h3>
+<input id="filter" placeholder="Search business, owner or email" oninput="renderRows()">
+</div>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>Business / Owner</th>
+<th>Email</th>
+<th>Username</th>
+<th>Registered</th>
+<th>Access</th>
+<th>Trial ends</th>
+<th>Actions</th>
+</tr>
+</thead>
+<tbody id="rows">
+<tr><td colspan="7">Loading...</td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="subtle" style="margin-top:12px">
+Approving an account starts its 1-day free trial. Pausing blocks POS login. Reactivating restores access without resetting the trial.
+</p>
+<div id="appMessage"></div>
+</div>
+</section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL="YOUR_SUPABASE_PROJECT_URL";
+const SUPABASE_ANON_KEY="YOUR_SUPABASE_ANON_PUBLIC_KEY";
+const ADMIN_EMAIL="user1@marketpos.app";
+
+let sb=null,accounts=[];
+
+function client(){
+ if(!window.supabase||SUPABASE_URL.startsWith("YOUR_")||SUPABASE_ANON_KEY.startsWith("YOUR_"))
+ throw Error("Add your Supabase Project URL and anon public key in dashboard.html.");
+
+ if(!sb)sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+ return sb;
+}
+
+function message(t){
+ document.getElementById('message').textContent=t;
+}
+
+function appMessage(t,good=false){
+ const e=document.getElementById('appMessage');
+ e.textContent=t;
+ e.style.color=good?'#15803d':'#b91c1c';
+}
+
+async function loginAdmin(e){
+ e.preventDefault();
+
+ const b=document.getElementById('loginBtn');
+ b.disabled=true;
+ message('');
+
+ try{
+  const db=client();
+  const user=document.getElementById('username').value.trim().toLowerCase();
+  const pass=document.getElementById('password').value;
+
+  if(user!=='user1')
+   throw Error('Invalid administrator username or password.');
+
+  const {data,error}=await db.auth.signInWithPassword({
+   email:ADMIN_EMAIL,
+   password:pass
+  });
+
+  if(error)throw error;
+
+  const {data:p,error:pe}=await db.from('profiles')
+   .select('role')
+   .eq('user_id',data.user.id)
+   .single();
+
+  if(pe||!p||p.role!=='admin'){
+   await db.auth.signOut();
+   throw Error('This account does not have administrator privileges.');
+  }
+
+  document.getElementById('login').style.display='none';
+  document.getElementById('app').style.display='block';
+  document.getElementById('logout').style.display='block';
+
+  await loadAccounts();
+
+ }catch(err){
+  message(err.message||'Login failed.');
+ }finally{
+  b.disabled=false;
+ }
+}
+
+async function loadAccounts(){
+ try{
+  const {data,error}=await client()
+   .from('profiles')
+   .select('user_id,business_name,owner_name,username,status,trial_ends_at,created_at,email')
+   .neq('role','admin')
+   .order('created_at',{ascending:false});
+
+  if(error)throw error;
+
+  accounts=data||[];
+
+  document.getElementById('total').textContent=accounts.length;
+  document.getElementById('approved').textContent=accounts.filter(x=>x.status==='approved').length;
+  document.getElementById('pending').textContent=accounts.filter(x=>x.status==='pending').length;
+  document.getElementById('paused').textContent=accounts.filter(x=>x.status==='paused').length;
+
+  renderRows();
+  appMessage('Account list updated.',true);
+
+ }catch(err){
+  appMessage(err.message);
+ }
+}
+
+function fmt(v){
+ return v?new Date(v).toLocaleDateString():'—';
+}
+
+function esc(v){
+ return String(v??'').replace(/[&<>"']/g,c=>({
+  '&':'&amp;',
+  '<':'&lt;',
+  '>':'&gt;',
+  '"':'&quot;',
+  "'":'&#39;'
+ }[c]));
+}
+
+function renderRows(){
+ const q=document.getElementById('filter').value.toLowerCase();
+
+ const filtered=accounts.filter(a=>
+  [a.business_name,a.owner_name,a.email,a.username]
+  .join(' ').toLowerCase().includes(q)
+ );
+
+ const body=document.getElementById('rows');
+
+ if(!filtered.length){
+  body.innerHTML='<tr><td colspan="7">No matching business accounts.</td></tr>';
+  return;
+ }
+
+ body.innerHTML=filtered.map(a=>{
+  const status=a.status||'pending';
+
+  const actions=status==='pending'
+   ?`<button onclick="changeStatus('${a.user_id}','approved')">Approve</button><button class="danger" onclick="removeAccount('${a.user_id}')">Delete</button>`
+   :status==='approved'
+   ?`<button class="pause" onclick="changeStatus('${a.user_id}','paused')">Pause</button><button class="danger" onclick="removeAccount('${a.user_id}')">Delete</button>`
+   :`<button onclick="changeStatus('${a.user_id}','approved',false)">Reactivate</button><button class="danger" onclick="removeAccount('${a.user_id}')">Delete</button>`;
+
+  return `<tr>
+   <td><b>${esc(a.business_name)}</b><br><span class="subtle">${esc(a.owner_name)}</span></td>
+   <td>${esc(a.email)}</td>
+   <td>${esc(a.username)}</td>
+   <td>${fmt(a.created_at)}</td>
+   <td><span class="pill ${esc(status)}">${esc(status)}</span></td>
+   <td>${fmt(a.trial_ends_at)}</td>
+   <td><div class="actions">${actions}</div></td>
+  </tr>`;
+ }).join('');
+}
+
+async function changeStatus(id,status,startTrial=true){
+ const verb=status==='approved'?'approve and activate':
+             status==='paused'?'pause':'reactivate';
+
+ if(!confirm(`Are you sure you want to ${verb} this business?`))return;
+
+ try{
+  const patch={status};
+
+  // One-day trial starts when the admin approves the business.
+  if(status==='approved'&&startTrial){
+   patch.trial_ends_at=new Date(Date.now()+24*60*60*1000).toISOString();
+  }
+
+  const {error}=await client()
+   .from('profiles')
+   .update(patch)
+   .eq('user_id',id);
+
+  if(error)throw error;
+
+  appMessage('Business access updated.',true);
+  await loadAccounts();
+
+ }catch(err){
+  appMessage(err.message);
+ }
+}
+
+async function removeAccount(id){
+ if(!confirm('Permanently delete this business account and its authentication login? This cannot be undone.'))return;
+
+ try{
+  const {error}=await client().rpc('admin_delete_business',{
+   target_user_id:id
+  });
+
+  if(error)throw error;
+
+  appMessage('Business account deleted.',true);
+  await loadAccounts();
+
+ }catch(err){
+  appMessage('Delete failed: '+err.message+' Check that the admin_delete_business SQL function has been installed.');
+ }
+}
+
+async function logout(){
+ try{
+  await client().auth.signOut();
+ }catch(e){}
+
+ location.reload();
+}
+</script>
+</body>
+</html>
